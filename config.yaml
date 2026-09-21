@@ -1,0 +1,572 @@
+# Alzheimer's Disease Progression Prediction - Configuration
+# Complete configuration for training, evaluation, and inference
+
+# ============================================================================
+# 1. GENERAL SETTINGS
+# ============================================================================
+general:
+  seed: 42
+  device: auto  # 'cuda', 'cpu', or 'auto'
+  debug_mode: false  # Use tiny models and synthetic data for testing
+  num_workers: 4
+  mixed_precision: true  # Enable AMP for faster training
+
+# ============================================================================
+# 2. DATA CONFIGURATION
+# ============================================================================
+data:
+  # Paths
+  raw_mri_dir: "data/raw/MRI"
+  raw_clinical_file: "data/raw/clinical/clinical.csv"
+  processed_mri_dir: "data/processed/MRI"
+  processed_clinical_dir: "data/processed/clinical"
+  metadata_dir: "data/metadata"
+  
+  # Column mapping - CONFIGURE BASED ON YOUR DATASET
+  column_mapping:
+    patient_id: "patient_id"           # Patient identifier
+    visit_id: "visit_id"               # Visit identifier
+    visit_date: "visit_date"           # Visit date (YYYY-MM-DD)
+    diagnosis: "diagnosis"             # Diagnosis: CN, MCI, AD
+    age: "age"                         # Age in years
+    sex: "sex"                         # M or F
+    education: "education"             # Years of education
+    mmse: "MMSE"                       # Mini-Mental State Exam
+    cdr: "CDR"                         # Clinical Dementia Rating
+    adas_cog: "ADAS_Cog"               # ADAS-Cognitive
+    mri_path: "mri_path"               # Path to MRI file
+  
+  # Task definition
+  task: "progression"  # 'progression' or 'classification'
+  prediction_horizon_months: 24  # Predict conversion within 24 months
+  minimum_followup_months: 12    # Minimum follow-up for label validity
+  
+  # Train/Val/Test split
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+  
+  # Visit configuration
+  max_visits: 4           # Maximum number of visits per patient (pad/truncate)
+  min_visits_for_progression: 2  # Minimum visits for progression labeling
+  
+  # Missing value handling
+  missing_value_strategy:
+    numerical: "median"     # median, mean, forward_fill
+    categorical: "most_frequent"
+    mri_missing: "skip"     # skip visit, or remove patient
+
+# ============================================================================
+# 3. MRI PREPROCESSING
+# ============================================================================
+mri_preprocessing:
+  # Input/Output
+  input_format: "nifti"  # nifti, nifti_gz, npy
+  output_format: "npy"
+  overwrite: false
+  
+  # Spatial preprocessing
+  standardize_orientation: true
+  target_orientation: "RAS"  # Right-Anterior-Superior
+  
+  # Skull stripping
+  skull_stripping:
+    enabled: false
+    method: "bet"  # FSL BET
+  
+  # Registration
+  registration:
+    enabled: false
+    template: "MNI152"
+    method: "affine"
+  
+  # Resampling
+  resampling:
+    enabled: true
+    voxel_spacing: 2.0  # mm
+  
+  # Bias field correction
+  bias_correction: true
+  
+  # Intensity normalization
+  intensity_normalization:
+    enabled: true
+    method: "z_score"  # z_score, min_max, robust
+  
+  # Cropping/padding
+  cropping:
+    enabled: true
+    auto_crop: true
+    crop_margins: 5
+  
+  # Final resize
+  target_shape: [96, 112, 96]  # D, H, W
+  
+  # Quality checks
+  check_validity: true
+  remove_invalid: false
+
+# ============================================================================
+# 4. CLINICAL PREPROCESSING
+# ============================================================================
+clinical_preprocessing:
+  # Feature selection
+  features_to_use:
+    numerical:
+      - "age"
+      - "MMSE"
+      - "CDR"
+      - "ADAS_Cog"
+      - "education"
+    categorical:
+      - "sex"
+      - "APOE"  # Optional, if available
+  
+  # Normalization
+  normalization:
+    method: "standard"  # standard (z-score), minmax, robust
+    fit_on_train_only: true  # CRITICAL: prevent leakage
+  
+  # Encoding
+  categorical_encoding:
+    method: "onehot"  # onehot, label, ordinal
+  
+  # Outlier handling
+  outlier_detection:
+    enabled: true
+    method: "iqr"  # iqr, zscore
+    threshold: 3.0
+    action: "cap"  # cap, remove, keep
+  
+  # Temporal features
+  temporal_features:
+    generate_time_from_baseline: true
+    generate_visit_interval: true
+    generate_change_features: true
+  
+  # Baseline-relative features
+  baseline_relative:
+    enabled: true  # Generate MMSE_change, CDR_change, etc.
+    features_to_track:
+      - "MMSE"
+      - "CDR"
+      - "ADAS_Cog"
+
+# ============================================================================
+# 5. MRI ENCODER CONFIGURATION
+# ============================================================================
+mri_encoder:
+  type: "hybrid"  # 'cnn_only', 'vit_only', 'hybrid'
+  
+  # CNN component
+  cnn:
+    enabled: true
+    architecture: "resnet3d"  # resnet3d, densenet3d, vgg3d
+    in_channels: 1
+    depth_channels: [32, 64, 128]
+    dropout: 0.2
+    use_batchnorm: true
+    downsample_factors: [2, 2, 2]
+  
+  # Vision Transformer component
+  vit:
+    enabled: true
+    patch_size: 16
+    embed_dim: 256
+    num_heads: 8
+    num_layers: 6
+    mlp_dim: 1024
+    dropout: 0.1
+    use_cls_token: true
+    use_pos_embedding: true
+  
+  # Fusion
+  fusion_method: "concat"  # concat, add, gating
+  output_dim: 256
+
+# ============================================================================
+# 6. CLINICAL ENCODER CONFIGURATION
+# ============================================================================
+clinical_encoder:
+  input_dim: null  # Auto-computed from preprocessing
+  
+  # Architecture
+  layers:
+    - 128
+    - 64
+  activation: "relu"
+  dropout: 0.3
+  use_batchnorm: true
+  
+  # Temporal modeling
+  temporal_modeling:
+    enabled: true
+    type: "lstm"  # lstm, transformer, none
+    hidden_dim: 128
+    num_layers: 2
+    bidirectional: true
+  
+  # Output
+  output_dim: 128
+
+# ============================================================================
+# 7. CROSS-ATTENTION FUSION CONFIGURATION
+# ============================================================================
+cross_attention:
+  enabled: true
+  bidirectional: true  # MRI→Clinical AND Clinical→MRI
+  
+  # Attention parameters
+  hidden_dim: 256
+  num_heads: 8
+  dropout: 0.1
+  
+  # Fusion after attention
+  fusion_type: "concat"  # concat, add, gating, fflayer
+  output_dim: 256
+
+# ============================================================================
+# 8. TEMPORAL TRANSFORMER CONFIGURATION
+# ============================================================================
+temporal_transformer:
+  enabled: true
+  
+  # Architecture
+  input_dim: 256  # From cross-attention output
+  num_layers: 4
+  num_heads: 8
+  mlp_dim: 512
+  dropout: 0.1
+  
+  # Positional encoding
+  pos_encoding_type: "learnable"  # learnable, fourier, none
+  
+  # Attention
+  attention_type: "scaled_dot_product"
+  use_causal_mask: false  # Don't mask future visits
+  
+  # Output
+  output_dim: 256
+
+# ============================================================================
+# 9. CLASSIFICATION & PROGRESSION HEADS
+# ============================================================================
+heads:
+  # Classification head (CN/MCI/AD)
+  classification:
+    enabled: true
+    output_classes: 3  # CN, MCI, AD
+    hidden_dim: 128
+    dropout: 0.2
+  
+  # Progression head (MCI→AD)
+  progression:
+    enabled: true
+    task: "binary"  # binary classification
+    hidden_dim: 64
+    dropout: 0.2
+
+# ============================================================================
+# 10. TRAINING CONFIGURATION
+# ============================================================================
+training:
+  # Model initialization
+  init_weights: true
+  pretrained_mri: false  # Can use pretrained 2D/3D models
+  
+  # Optimization
+  optimizer: "AdamW"
+  learning_rate: 0.001
+  weight_decay: 1e-5
+  beta1: 0.9
+  beta2: 0.999
+  epsilon: 1e-8
+  
+  # Learning rate scheduling
+  scheduler:
+    type: "cosine"  # cosine, linear, exponential, plateau
+    warmup_epochs: 5
+    total_epochs: 100
+    T_max: 100  # For cosine annealing
+    eta_min: 1e-6
+  
+  # Training loop
+  num_epochs: 100
+  batch_size: 8
+  accumulation_steps: 1  # Gradient accumulation
+  
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 15
+    metric: "val_auc"  # val_loss, val_acc, val_auc
+    mode: "max"  # max for AUC/acc, min for loss
+    min_delta: 0.001
+  
+  # Loss weights
+  loss_weights:
+    classification: 1.0
+    progression: 1.0
+  
+  # Class weights (handle imbalance)
+  class_weights:
+    enabled: true
+    method: "balanced"  # balanced, manual, none
+    # If manual, specify:
+    manual_weights:
+      CN: 1.0
+      MCI: 1.5
+      AD: 1.5
+      non_converter: 1.0
+      converter: 2.0
+  
+  # Checkpointing
+  checkpoint:
+    save_best: true
+    save_frequency: 5  # Every N epochs
+    save_dir: "models_saved"
+    max_keep: 3  # Keep last N checkpoints
+  
+  # Validation
+  validation_frequency: 1  # Every N epochs
+  test_during_training: false
+
+# ============================================================================
+# 11. EVALUATION CONFIGURATION
+# ============================================================================
+evaluation:
+  # Metrics to compute
+  classification_metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "f1"
+    - "roc_auc"
+    - "confusion_matrix"
+  
+  progression_metrics:
+    - "accuracy"
+    - "precision"
+    - "recall"
+    - "sensitivity"
+    - "specificity"
+    - "f1"
+    - "auc"
+    - "pr_auc"
+    - "brier_score"
+  
+  # Thresholds for risk classification
+  progression_thresholds:
+    low: 0.33
+    moderate: 0.67
+    high: 1.0
+  
+  # Output
+  save_predictions: true
+  save_probabilities: true
+  save_format: ["csv", "json"]
+  results_dir: "results"
+
+# ============================================================================
+# 12. EXPLAINABILITY CONFIGURATION
+# ============================================================================
+explainability:
+  enabled: true
+  
+  # MRI Grad-CAM
+  gradcam:
+    enabled: true
+    target_layer: "layer3"
+    use_guided: false
+    save_heatmaps: true
+  
+  # Integrated Gradients
+  integrated_gradients:
+    enabled: true
+    steps: 50
+    baseline_type: "zeros"  # zeros, random, gaussian
+  
+  # Attention visualization
+  attention_visualization:
+    enabled: true
+    save_weights: true
+  
+  # SHAP for clinical features
+  shap_analysis:
+    enabled: true
+    explainer_type: "TreeExplainer"  # TreeExplainer, KernelExplainer
+    save_plots: true
+    top_features: 10
+  
+  # Longitudinal explanation
+  longitudinal_explanation:
+    enabled: true
+    generate_trajectory: true
+    save_visualizations: true
+  
+  # Output
+  explanations_dir: "results/explanations"
+
+# ============================================================================
+# 13. DATA AUGMENTATION
+# ============================================================================
+augmentation:
+  enabled: false  # Be careful with medical data!
+  
+  mri_augmentation:
+    rotation: false
+    elastic_deformation: false
+    intensity_shifts: true
+    intensity_range: 0.1
+  
+  clinical_augmentation:
+    enabled: false
+    gaussian_noise: false
+    noise_std: 0.01
+
+# ============================================================================
+# 14. EXPERIMENT CONFIGURATION
+# ============================================================================
+experiments:
+  # Ablation studies
+  ablation:
+    cnn_only: false
+    vit_only: false
+    concat_fusion: false
+    no_temporal: false
+    no_crossattention: false
+  
+  # Baseline comparisons
+  baselines:
+    clinical_only_mlp: true
+    mri_only_cnn: true
+    simple_concatenation: true
+  
+  # Save ablation results
+  ablation_dir: "results/ablations"
+
+# ============================================================================
+# 15. INFERENCE CONFIGURATION
+# ============================================================================
+inference:
+  # Model loading
+  checkpoint_path: "models_saved/best_model.pth"
+  device: auto
+  
+  # Batch processing
+  batch_size: 1
+  return_attention: true
+  return_embeddings: true
+  
+  # Explainability during inference
+  explain: true
+  explain_types:
+    - "gradcam"
+    - "shap"
+    - "attention"
+
+# ============================================================================
+# 16. SYNTHETIC DATA GENERATION (FOR TESTING)
+# ============================================================================
+synthetic_data:
+  enabled: false
+  
+  # Generation parameters
+  num_patients: 50
+  num_visits_per_patient:
+    min: 2
+    max: 4
+  
+  mri_shape: [96, 112, 96]
+  clinical_features: 15
+  
+  # Label distribution
+  label_distribution:
+    CN: 0.3
+    MCI: 0.4
+    AD: 0.3
+  
+  converter_ratio: 0.4  # Among MCI patients
+  
+  seed: 42
+
+# ============================================================================
+# 17. LOGGING & MONITORING
+# ============================================================================
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # TensorBoard
+  tensorboard:
+    enabled: false
+    log_dir: "runs"
+  
+  # Wandb (optional)
+  wandb:
+    enabled: false
+    project: "alzheimers-prediction"
+  
+  # Save logs
+  save_logs: true
+  logs_dir: "logs"
+
+# ============================================================================
+# 18. REPRODUCIBILITY & DEBUGGING
+# ============================================================================
+reproducibility:
+  # Seeds
+  seed: 42
+  torch_deterministic: true
+  
+  # CUDA settings
+  cuda_enabled: true
+  cuda_benchmark: false  # Disable for reproducibility
+  
+  # Debug mode
+  debug:
+    enabled: false
+    print_shapes: false
+    check_nan: false
+    profile: false
+
+# ============================================================================
+# 19. STREAMLIT APP CONFIGURATION
+# ============================================================================
+app:
+  enabled: true
+  port: 8501
+  theme: "light"  # light or dark
+  
+  # Features
+  show_patient_input: true
+  show_mri_upload: true
+  show_clinical_data: true
+  show_predictions: true
+  show_explanations: true
+  show_longitudinal_trends: true
+  
+  # Display settings
+  max_display_visits: 5
+  heatmap_alpha: 0.5
+  explanation_top_features: 10
+
+# ============================================================================
+# 20. MISCELLANEOUS
+# ============================================================================
+misc:
+  project_name: "Alzheimer's Disease Progression Prediction"
+  version: "1.0.0"
+  description: "Explainable longitudinal multimodal deep learning system"
+  
+  # Medical disclaimer (display in app)
+  medical_disclaimer: |
+    This project is an academic research prototype for Alzheimer's disease 
+    progression prediction. It is not a clinically validated medical device 
+    and must not be used for diagnosis or treatment decisions.
+  
+  # Citation
+  citation: |
+    Based on:
+    Sasikumar and Karthik (2026): "Explainable Multimodal Deep Learning 
+    for Early Dementia Detection using MRI and Clinical Data", ICIRCA 2026

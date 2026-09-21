@@ -1,0 +1,51 @@
+# Core PyTorch & Deep Learning
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Medical Image Processing
+monai>=1.3.0
+nibabel>=5.1.0
+SimpleITK>=2.3.0
+pydicom>=2.4.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.17.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Explainability
+shap>=0.43.0
+grad-cam>=1.4.6
+captum>=0.7.0
+lime>=0.2.0
+
+# Utilities
+tqdm>=4.66.0
+pyyaml>=6.0
+joblib>=1.3.0
+python-dateutil>=2.8.0
+
+# Logging & Monitoring
+tensorboard>=2.14.0
+# wandb>=0.16.0  # Optional
+
+# Web App
+streamlit>=1.28.0
+streamlit-option-menu>=0.3.5
+
+# Development/Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Optional (for advanced features)
+# torch-lightning>=2.0.0  # For advanced training
+# ray[tune]>=2.9.0  # For hyperparameter tuning
